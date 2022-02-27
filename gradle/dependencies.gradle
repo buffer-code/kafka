@@ -178,6 +178,7 @@ libs += [
   kafkaStreams_30: "org.apache.kafka:kafka-streams:$versions.kafka_30",
   kafkaStreams_31: "org.apache.kafka:kafka-streams:$versions.kafka_31",
   log4j: "log4j:log4j:$versions.log4j",
+  slf4jnop: "org.slf4j:slf4j-nop:$versions.slf4j",
   lz4: "org.lz4:lz4-java:$versions.lz4",
   metrics: "com.yammer.metrics:metrics-core:$versions.metrics",
   dropwizardMetrics: "io.dropwizard.metrics:metrics-core:$versions.dropwizardMetrics",
