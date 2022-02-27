@@ -49,16 +49,19 @@ import scala.math._
  * @param baseOffset A lower bound on the offsets in this segment
  * @param indexIntervalBytes The approximate number of bytes between entries in the index
  * @param rollJitterMs The maximum random jitter subtracted from the scheduled segment roll time
+ *                      Broker 端日志段新增倒计时是全局设置，这就是说，在未来的某个时刻可能同时创建多个日志段对象，
+ *                      这将极大地增加物理磁盘 I/O 压力。有了 rollJitterMs 值的干扰，每个新增日志段在创建时会彼此岔开一小段时间，
+ *                      这样可以缓解物理磁盘的 I/O 负载瓶颈。
  * @param time The time instance
  */
 @nonthreadsafe
-class LogSegment private[log] (val log: FileRecords,
-                               val offsetIndex: OffsetIndex,
-                               val timeIndex: TimeIndex,
-                               val txnIndex: TransactionIndex,
-                               val baseOffset: Long,
-                               val indexIntervalBytes: Int,
-                               val rollJitterMs: Long,
+class LogSegment private[log] (val log: FileRecords,  //kafka消息对象
+                               val offsetIndex: OffsetIndex,  //位移索引文件
+                               val timeIndex: TimeIndex,  //时间戳索引文件
+                               val txnIndex: TransactionIndex,  //已中止事务索引文件
+                               val baseOffset: Long,   //日志段起始位移
+                               val indexIntervalBytes: Int,  //控制了日志段对象新增索引项的频率(4KB)
+                               val rollJitterMs: Long,   //rollJitterMs 是日志段对象新增倒计时的“扰动值”
                                val time: Time) extends Logging {
 
   def shouldRoll(rollParams: RollParams): Boolean = {
@@ -109,13 +112,13 @@ class LogSegment private[log] (val log: FileRecords,
 
   /**
    * Append the given messages starting with the given offset. Add
-   * an entry to the index if needed.
+   * an entry to the index if needed.写入消息
    *
    * It is assumed this method is being called from within a lock.
    *
-   * @param largestOffset The last offset in the message set
-   * @param largestTimestamp The largest timestamp in the message set.
-   * @param shallowOffsetOfMaxTimestamp The offset of the message that has the largest timestamp in the messages to append.
+   * @param largestOffset The last offset in the message set 最大位移值
+   * @param largestTimestamp The largest timestamp in the message set. 最大时间戳
+   * @param shallowOffsetOfMaxTimestamp The offset of the message that has the largest timestamp in the messages to append. 最大时间戳对应消息的位移
    * @param records The log entries to append.
    * @return the physical position in the file of the appended records
    * @throws LogSegmentOffsetOverflowException if the largest offset causes index offset overflow
@@ -129,9 +132,11 @@ class LogSegment private[log] (val log: FileRecords,
       trace(s"Inserting ${records.sizeInBytes} bytes at end offset $largestOffset at position ${log.sizeInBytes} " +
             s"with largest timestamp $largestTimestamp at shallow offset $shallowOffsetOfMaxTimestamp")
       val physicalPosition = log.sizeInBytes()
+      //判断该日志段是否为空
+      //如果是空的话， Kafka 需要记录要写入消息集合的最大时间戳，并将其作为后面新增日志段倒计时的依据
       if (physicalPosition == 0)
         rollingBasedTimestamp = Some(largestTimestamp)
-
+      //代码调用 ensureOffsetInRange 方法确保输入参数最大位移值是合法的
       ensureOffsetInRange(largestOffset)
 
       // append the messages
